@@ -1,0 +1,27 @@
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+# @global-owner1 and @global-owner2 will be requested for
+# review when someone opens a pull request.
+*       @GoogleCloudPlatform/cloudml-samples-owners
+
+# Notebooks
+/notebooks			@ivanmkc
+
+# Official Notebooks
+
+
+# Community Notebooks
+
+
+
+# Tutorials
+/tutorials			@morgandu
+
+# Official Tutorials
+# Please add a line item below for your official tutorial i.e.
+# /tutorials/official/path_to_your_official_tutorial/		@your-github-username
+
+
+# Community Tutorials
+# Please add a line item below for your community tutorial i.e.
+# /tutorials/community/path_to_your_community_tutorial/		@your-github-username
