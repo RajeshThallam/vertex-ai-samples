@@ -3,13 +3,10 @@
 # install packages from CRAN ---------------------------------------------------
 ## create list of packages not already installed and install missing ones 
 required_packages <- c("here",
-                       "devtools",
-                       "dpylr",
                        "readr",
                        "gargle",
                        "googleAuthR",
                        "googleCloudStorageR",
-                       "googleCloudRunner",
                        "randomForest",
                        "plumber")
 

@@ -7,8 +7,5 @@ library(randomForest)
 model <- randomForest(Species ~ ., data = iris)
 
 # save model
-# TODO @justijm - resolve directory for model and image via docker file 
-save(model, file = "./build/model.RData")
+save(model, file = here("container","model.RData"))
 
-# upload to cloud storage 
-# TODO @justinjm - 
