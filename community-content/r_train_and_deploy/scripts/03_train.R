@@ -9,7 +9,7 @@ library(gargle)
 
 ## set default project and bucket via environment in .Renviron 
 project_id <- Sys.getenv("GCP_PROJECT_ID")
-bucket <- Sys.getenv("GCS_BUCKET")
+bucket <- Sys.getenv("GCS_BUCKET") # TODO @justinjm - switch this and setup to GCS_DEFAULT_BUCKET
 email <- Sys.getenv("GARGLE_AUTH_EMAIL")
 
 

@@ -163,3 +163,6 @@ temp/
 
 ## R environment variables
 .Renviron 
+
+## R data files
+*.RData
