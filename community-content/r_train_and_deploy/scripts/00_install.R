@@ -14,6 +14,3 @@ required_packages <- c("here",
                        "plumber")
 
 install.packages(setdiff(required_packages, rownames(installed.packages())))
-
-# install required packages from GitHub  --------------------------------------
-# devtools::install_github("username/reponame")
