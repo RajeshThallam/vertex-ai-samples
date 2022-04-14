@@ -1,7 +1,6 @@
 # get_data.R --------------------------------------------------------------
 
 library(here)
-library(readr)
 library(jsonlite)
 
 source(here("scripts", "functions.R"))
@@ -47,4 +46,6 @@ column_names <- c(V1 = "age",
 colnames(data_out) <- set_names(data_frame = data_out, 
                                 lookup_names = column_names)
 
-write_csv(data_out, here("data", "raw", "bank_marketing.csv"))
+write.csv(x = data_out, 
+          file = here("data", "raw", "bank_marketing.csv"),
+          row.names = FALSE)
