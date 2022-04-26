@@ -1,8 +1,12 @@
 # Train and Deploy R Model
 
+
+
 ## Summary
 
 Train a model in R on managed notebook and deploy in Vertex AI 
+
+See related notebook [here](https://github.com/RajeshThallam/vertex-ai-labs/tree/main/06-vertex-train-deploy-r-model )
 
 
 ## Workflow Steps
