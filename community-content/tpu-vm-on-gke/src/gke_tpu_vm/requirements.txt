@@ -1,0 +1,4 @@
+absl-py==1.0.0
+google-cloud-compute==0.8.0
+google-cloud-container==2.10.1
+requests==2.26.0
