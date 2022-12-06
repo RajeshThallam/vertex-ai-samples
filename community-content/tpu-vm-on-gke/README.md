@@ -52,7 +52,7 @@ A few things to note:
 
 Click on the below link to navigate to Cloud Shell and clone the repo.
 
-<a href="https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/GoogleCloudPlatform/vertex-ai-samples&cloudshell_workspace=community-content/tpu-vm-in-gke-pipeline&tutorial=README.md">
+<a href="https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/RajeshThallam/vertex-ai-samples&cloudshell_git_branch=tpu-in-gke&cloudshell_workspace=community-content/tpu-vm-on-gke&tutorial=README.md">
     <img alt="Open in Cloud Shell" src="http://gstatic.com/cloudssh/images/open-btn.png">
 </a>
 
