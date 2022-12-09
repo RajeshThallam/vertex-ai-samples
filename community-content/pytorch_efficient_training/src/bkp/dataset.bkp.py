@@ -49,7 +49,7 @@ class ImageFolder(torchvision.datasets.ImageFolder):
             return img
 
 
-def prepare_dataloader(mode, args):
+def prepare_dataloader(mode, rank, args):
     if mode == 'train':
         # Create train dataloader.
         dataset = torchvision.datasets.ImageFolder(
@@ -61,6 +61,7 @@ def prepare_dataloader(mode, args):
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]))
+        data_path = args.train_data_path
         batch_size = args.batch_size
         shuffle = True
     else:
@@ -74,13 +75,13 @@ def prepare_dataloader(mode, args):
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]))
+        data_path = args.val_data_path
         batch_size = args.batch_size
         shuffle = False
 
     num_workers = args.workers
     if args.distributed:
-        sampler = data.distributed.DistributedSampler(dataset, shuffle=shuffle, 
-                                                      num_replicas=args.gpus, rank=args.gpu)
+        sampler = data.distributed.DistributedSampler(dataset, shuffle=shuffle)
         shuffle = False
     else:
         sampler = None
@@ -92,10 +93,10 @@ def prepare_dataloader(mode, args):
         num_workers=num_workers,
         pin_memory=True,
         sampler=sampler)
-    if args.gpu == 0:
+    if rank == 0:
         print(f'{mode} dataloader | samples: {len(dataloader.dataset)}, '
               f'num workers: {dataloader.num_workers}, '
-              f'global batch size: {batch_size * args.gpus}, '
+              f'global batch size: {batch_size * args.ngpus_per_node}, '
               f'batches/epoch: {len(dataloader)}')
     return dataloader
 
@@ -122,7 +123,7 @@ def identity(x):
     return x
 
 
-def prepare_wds_dataloader(mode, args):
+def prepare_wds_dataloader(mode, rank, args):
     if mode == 'train':
         transform = transforms.Compose([
             transforms.RandomResizedCrop(224),
@@ -134,7 +135,7 @@ def prepare_wds_dataloader(mode, args):
         data_path = args.train_data_path
         data_size = args.data_size
         batch_size_local = args.batch_size
-        batch_size_global = args.batch_size * args.gpus
+        batch_size_global = args.batch_size * args.ngpus_per_node
         # Since webdataset disallows partial batch, we pad the last batch for train.
         batches = int(math.ceil(data_size / batch_size_global))
     else:
@@ -148,13 +149,13 @@ def prepare_wds_dataloader(mode, args):
         data_path = args.val_data_path
         data_size = args.data_size
         batch_size_local = args.batch_size
-        batch_size_global = args.batch_size * args.gpus
+        batch_size_global = args.batch_size * args.ngpus_per_node
         # Since webdataset disallows partial batch, we drop the last batch for eval.
         batches = int(data_size / batch_size_global)
 
     dataset = wds.DataPipeline(
         wds.SimpleShardList(data_path),
-        functools.partial(wds_split, rank=args.gpu, world_size=args.gpus),
+        functools.partial(wds_split, rank=rank, world_size=args.ngpus_per_node),
         wds.tarfile_to_samples(),
         wds.decode('pil'),
         wds.to_tuple('jpg;png;jpeg cls'),
@@ -162,6 +163,7 @@ def prepare_wds_dataloader(mode, args):
         wds.batched(batch_size_local, partial=False),
       )
     num_workers = args.workers
+    num_workers = 2
     dataloader = wds.WebLoader(
         dataset=dataset,
         batch_size=None,
