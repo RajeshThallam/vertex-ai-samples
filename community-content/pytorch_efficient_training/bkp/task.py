@@ -28,7 +28,7 @@ from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.models import resnet50
 
-from src import dataset, experiment
+from trainer import dataset, experiment
 
 def distributed_is_initialized(run_distributed):
     print(f"run_distributed={run_distributed}")
