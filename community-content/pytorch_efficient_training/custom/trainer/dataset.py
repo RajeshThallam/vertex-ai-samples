@@ -16,6 +16,7 @@ import math
 import functools
 import itertools
 
+import torch.distributed as dist
 from torch.utils import data
 import torchvision
 from torchvision.transforms import transforms
@@ -80,7 +81,8 @@ def prepare_dataloader(mode, args):
     num_workers = args.workers
     if args.distributed:
         sampler = data.distributed.DistributedSampler(dataset, shuffle=shuffle, 
-                                                      num_replicas=args.gpus, rank=args.gpu)
+                                                      num_replicas=args.gpus, 
+                                                      rank=args.gpu)
         shuffle = False
     else:
         sampler = None

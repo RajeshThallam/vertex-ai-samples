@@ -1,5 +1,20 @@
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the \"License\");
+# you may not use this file except in compliance with the License.\n",
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an \"AS IS\" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import time
+import json
 
 import torch
 
@@ -18,7 +33,8 @@ class Trainer():
                  train_loader,
                  val_loader,
                  metric,
-                 model_name):
+                 model_name,
+                 tb=None):
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
@@ -26,6 +42,7 @@ class Trainer():
         self.val_loader = val_loader
         self.model_name = model_name 
         self.metric = metric
+        self.tb = tb
 
     def train(self, epoch, args):
         self.model.train()
@@ -33,54 +50,70 @@ class Trainer():
 
         time_sync(args.device)
         data_time = 0.0
-        train_time = 0.0
+        total_forward_time = 0.0
+        total_backward_time = 0.0
         total_loss = 0.0
         data_count = 0
-        batch_count = 0
         epoch_start_time = time.time()
         end = epoch_start_time
 
-        for i, (images, target) in enumerate(self.train_loader):
-            # measure data loading time
-            time_sync(args.device)
-            data_time += (time.time() - end)
-            
+        for batch_id, (images, target) in enumerate(self.train_loader):            
             # move data to the same device as model
             images = images.to(args.device, non_blocking=True)
             target = target.to(args.device, non_blocking=True)
             data_count += images.size(0)
+            # measure data loading time
+            time_sync(args.device)
+            data_time += (time.time() - end)
+            
+            time_sync(args.device)
+            forward_time = time.time()
             # compute output
             # Forward pass with mixed precision
             with torch.cuda.amp.autocast(): 
                 output = self.model(images)
                 loss = self.criterion(output, target)
-            total_loss += (loss.item() * images.size(0))
+                total_loss += loss.item()
+                
+            time_sync(args.device)
+            total_forward_time += (time.time() - forward_time)
+
             # compute gradient and do SGD step
+            time_sync(args.device)
+            backward_time = time.time()
+
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             self.model.zero_grad(set_to_none=True)
-            
-            batch_count += 1
+
+            time_sync(args.device)
+            total_backward_time += (time.time() - backward_time)
+
             time_sync(args.device)
             end = time.time()
 
         time_sync(args.device)
-        train_time = (time.time() - epoch_start_time)
+        self.tb.add_scalar("Loss", total_loss, epoch)
+        self.tb.add_scalar("Data Load Time", data_time, epoch)
+        self.tb.add_scalar("Data Throughput", (data_count/data_time), epoch)
+        self.tb.add_scalar("Forward Time", total_forward_time, epoch)
+        self.tb.add_scalar("Backward Time", total_backward_time, epoch)
+        
         metrics = {
             'epoch': epoch,
-            'dataset_size': batch_count,
+            'dataset_size': batch_id,
             'data_time': round(data_time, 3),
             'data_throughput': round((data_count/data_time), 0),
-            # 'loss': round(total_loss/batch_count, 4),
-            'train_time': round(train_time, 3)
+            'forward_time': round(total_forward_time, 3),
+            'backward_time': round(total_backward_time, 3)
         }
         metrics_fmt = ', '.join([f'{k}={v}' for k,v in metrics.items()])
         print(f'=> [Epoch {epoch}] [{args.gpu}]: {metrics_fmt}')
         return metrics
 
 
-    def validate(self, args):
+    def validate(self, epoch, args):
         # switch to evaluate mode
         self.model.eval()
         with torch.no_grad():
@@ -93,6 +126,7 @@ class Trainer():
                 self.metric.update(output, target)
 
         accuracy = self.metric.compute()
+        self.tb.add_scalar("Val Accuracy", accuracy, epoch)
         self.metric.reset()
         
         if args.gpu == 0:
@@ -123,9 +157,9 @@ class Trainer():
             time_sync(args.device)
             start = time.time()
 
-            epoch_metrics = self.train(epoch, args)
-            
+            epoch_metrics = self.train(epoch, args)            
             train_metrics['epoch'].append(epoch_metrics)
+
             time_sync(args.device)
             end = time.time()
             train_time = (end - start)
@@ -136,7 +170,9 @@ class Trainer():
             # evaluate on validation set
             time_sync(args.device)
             start = time.time()
-            acc1 = self.validate(args)
+
+            acc1 = self.validate(epoch, args)
+
             time_sync(args.device)
             end = time.time()
             eval_time = (end - start)
@@ -168,17 +204,22 @@ class Trainer():
                 }, filename=os.path.join(args.model_dir, f'{self.model_name}.pt'))
         # training loop end
 
+        # write metrics for visualization
         get_metric = lambda m,key: [e[key] for e in m]
-        epoch_meter = train_metrics['epoch']
-        total_meter = train_metrics['total']
-        total_meter['total_train_time'] = round(total_train_time, 3)
-        total_meter['avg_epoch_train_time'] = round(sum(get_metric(epoch_meter, 'train_time'))/len(epoch_meter), 3)
-        total_meter['total_eval_time']  = round(total_eval_time, 3)
-        total_meter['total_data_load_time'] = round(sum(get_metric(epoch_meter, 'data_time'))/len(epoch_meter), 3)
-        total_meter['data_throughput'] = sum(get_metric(epoch_meter, 'data_throughput'))
-        # total_meter['avg_training_loss'] = round(sum(get_metric(epoch_meter, 'loss'))/len(epoch_meter), 4)
-        # if args.gpu == 0:
-        #     metrics_fmt = '\n=> '.join([f'{k}={v}' for k,v in total_meter.items()])
-        #     print('-'*80)
-        #     print(f'=> {metrics_fmt}')
-        #     print('-'*80)
+        avg = lambda items: sum(items)/len(items)
+
+        m_epoch = train_metrics['epoch']
+        m_total = train_metrics['total']
+        m_total['train_time'] = round(total_train_time/args.epochs, 3)
+        m_total['eval_time']  = round(total_eval_time/args.epochs, 3)
+        m_total['data_load_time'] = round(avg(get_metric(m_epoch, 'data_time')), 3)
+        m_total['data_throughput'] = round(avg(get_metric(m_epoch, 'data_throughput')), 3)
+        m_total['forward_time'] = round(avg(get_metric(m_epoch, 'forward_time')), 3)
+        m_total['backward_time'] = round(avg(get_metric(m_epoch, 'backward_time')), 3)
+
+        # m_total['avg_training_loss'] = round(sum(get_metric(m_epoch, 'loss'))/len(m_epoch), 4)
+
+        metrics_path = os.path.join(args.metrics_dir, f'metrics_{args.gpu}.json')
+        print(f'Writing metrics to {metrics_path}')
+        with open(metrics_path, 'w') as f_metrics:
+            json.dump(train_metrics, f_metrics)

@@ -1,9 +1,25 @@
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the \"License\");
+# you may not use this file except in compliance with the License.\n",
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an \"AS IS\" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import os
 import time
 import functools
 import subprocess
 import shutil
+import json
+import glob
 
 import torch
 import torch.distributed as dist
@@ -36,19 +52,18 @@ def parse_args():
                         help='number of total epochs to run (default: 1)')
     parser.add_argument('--batch-size', default=32, type=int,
                         metavar='N',
-                        help='mini-batch size (default: 32), this is the '
-                             'batch size per gpu on the current node when '
-                             'using Data Parallel or Distributed Data Parallel')
+                        help='Training batch size (default: 32), Per device batch size')
+
     parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                         metavar='LR', help='initial learning rate', dest='lr')
-    parser.add_argument('--evaluate', dest='evaluate', action='store_true',
-                        help='evaluate model on validation set')
+
     parser.add_argument('--webdataset', action='store_true', 
                         help='use webdataset data loader (default: False)')
     parser.add_argument('--local_disk', action='store_true', 
                         help='download train and eval data to local disk  (default: False)')
     parser.add_argument('--distributed-strategy', default='ddp', type=str, 
                         help='Training distribution strategy. Valid values are: dp, ddp, fsdp')
+
     # to run the job using torchrun
     parser.add_argument("--hostip", default="localhost", type=str, 
                         help="setting for etcd host ip")
@@ -89,15 +104,50 @@ def makedirs(_dir):
     return
 
 
-def get_dir(_dir, local_dir):
+def get_dir(_dir, local_dir=None):
     gs_prefix = 'gs://'
     gcsfuse_prefix = '/gcs/'
-    local_dir = './tmp/model'
     _dir = _dir or local_dir
     if _dir and _dir.startswith(gs_prefix):
         _dir = _dir.replace(gs_prefix, gcsfuse_prefix)
     makedirs(_dir)
     return _dir
+
+
+def display_metrics(metrics_dir):
+    # collect all metrics
+    metrics_f = glob.glob(f'{metrics_dir}/metrics_*.json')
+    m = [json.load(open(f)) for f in metrics_f]
+    len_m = len(m)
+    m_totals = [item['total'] for item in m]
+    m_0 = [item for item in m if item['gpu'] == 0][0]
+
+    # inline functions
+    get_metric = lambda meter,key: [item[key] for item in meter]
+    avg = lambda items: sum(items)/len(items)
+
+    # calculate summary
+    m_summary = {
+        'num_gpus': len_m, 
+        'num_epochs': len(m_0['epoch']), 
+        'train_time': round(avg(get_metric(m_totals, 'train_time')), 3), 
+        'eval_time': round(avg(get_metric(m_totals, 'eval_time')), 3), 
+        'data_load_time': round(avg(get_metric(m_totals, 'data_load_time')), 3), 
+        'data_througput': round(sum(get_metric(m_totals, 'data_throughput')), 3), 
+        'forward_time': round(avg(get_metric(m_totals, 'forward_time')), 3), 
+        'backward_time': round(avg(get_metric(m_totals, 'backward_time')), 3), 
+    }
+
+    # display summary
+    metrics_fmt = '\n=> '.join([f'{k} = {v}' for k,v in m_summary.items()])
+    print('-'*80)
+    print(f'=> {metrics_fmt}')
+    print('-'*80)
+    
+    metrics_path = os.path.join(metrics_dir, 'summary_metrics.json')
+    print(f'Writing metrics to {metrics_path}')
+    with open(metrics_path, 'w') as f_metrics:
+        json.dump(m_summary, f_metrics)
 
 
 def prepare_model(args):
@@ -155,12 +205,17 @@ def main():
     args.model_dir = get_dir(args.model_dir , 'tmp/model')
     args.tensorboard_log_dir = get_dir(args.tensorboard_log_dir , 'tmp/logs')
     args.checkpoint_dir = get_dir(args.checkpoint_dir , 'tmp/checkpoints')
+    args.metrics_dir = get_dir(os.path.join(args.checkpoint_dir, 'metrics'))
         
     if args.distributed:
         print(f'Launch job on {args.gpus} GPUs with {args.distributed_strategy}')
         mp.spawn(main_worker, nprocs=args.gpus, args=(args,))
     else:
         main_worker(0, args)
+
+    metrics_dir = os.path.join(args.checkpoint_dir, 'metrics')
+    display_metrics(metrics_dir)
+    
 
 
 def main_worker(gpu, args):    
@@ -173,7 +228,8 @@ def main_worker(gpu, args):
     if args.distributed and args.distributed_strategy in ('ddp', 'fsdp'):
         init_ddp(args)
 
-    tb = SummaryWriter(args.tensorboard_log_dir)
+    # initialize tensorboard writer and metrics
+    tb = SummaryWriter(os.path.join(args.tensorboard_log_dir))
         
     # prepare model
     model, model_name = prepare_model(args)
@@ -202,22 +258,22 @@ def main_worker(gpu, args):
         train_loader=train_loader,
         val_loader=val_loader,
         metric=metric,
-        model_name=model_name
+        model_name=model_name,
+        tb=tb
     )
 
     if args.gpu == 0:
         for arg in vars(args):
             print(f'{arg} = {getattr(args, arg)}')
-    
-    if args.evaluate:
-        trainer.validate(args)
-        return
 
     trainer.run(args)
+    tb.close()
 
-    if args.distributed:
+    if (args.distributed and  
+        dist.is_available() and 
+        dist.is_initialized()):
         dist.destroy_process_group()
-      
+
     if args.gpu == 0:
         print('Done')
 
