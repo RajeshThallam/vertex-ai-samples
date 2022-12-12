@@ -94,11 +94,12 @@ class Trainer():
             end = time.time()
 
         time_sync(args.device)
-        self.tb.add_scalar("Loss", total_loss, epoch)
-        self.tb.add_scalar("Data Load Time", data_time, epoch)
-        self.tb.add_scalar("Data Throughput", (data_count/data_time), epoch)
-        self.tb.add_scalar("Forward Time", total_forward_time, epoch)
-        self.tb.add_scalar("Backward Time", total_backward_time, epoch)
+        if args.gpu == 0:
+            self.tb.add_scalar(f"Loss", total_loss, epoch)
+            self.tb.add_scalar(f"Data Load Time", data_time, epoch)
+            self.tb.add_scalar(f"Data Throughput", (data_count/data_time), epoch)
+            self.tb.add_scalar(f"Forward Time", total_forward_time, epoch)
+            self.tb.add_scalar(f"Backward Time", total_backward_time, epoch)
         
         metrics = {
             'epoch': epoch,
@@ -126,10 +127,10 @@ class Trainer():
                 self.metric.update(output, target)
 
         accuracy = self.metric.compute()
-        self.tb.add_scalar("Val Accuracy", accuracy, epoch)
         self.metric.reset()
         
         if args.gpu == 0:
+            self.tb.add_scalar("Val Accuracy", accuracy, epoch)
             print(f"=> Accuracy: {round(accuracy.item(), 6)}")
         return accuracy
 

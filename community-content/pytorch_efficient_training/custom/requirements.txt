@@ -3,3 +3,4 @@ torchvision == 0.13.1
 webdataset == 0.2.26
 torchmetrics == 0.9.3
 tensorboard
+python-json-logger
